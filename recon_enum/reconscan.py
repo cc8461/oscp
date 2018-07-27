@@ -9,6 +9,7 @@ import atexit
 import sys
 import socket
 import re
+import shlex
 
 # Todo:
 # Add mysql nmap-script
@@ -97,7 +98,7 @@ def write_to_file(ip_address, enum_type, data):
 
 def dirb(ip_address, port, url_start, wordlist="/usr/share/wordlist/dirb/big.txt, /usr/share/wordlist/dirb/vulns/cgis.txt"):
     print bcolors.HEADER + "INFO: Starting dirb scan for " + ip_address + bcolors.ENDC
-    DIRBSCAN = "dirb %s://%s:%s %s -o ../reports/%s/dirb-%s.txt -r" % (url_start, ip_address, port, ip_address, ip_address, wordlist)
+    DIRBSCAN = "dirb %s://%s:%s %s -o ../reports/%s/dirb_%s.txt -r " % (url_start, ip_address, port, ip_address, ip_address, wordlist)
     print bcolors.HEADER + DIRBSCAN + bcolors.ENDC
     results_dirb = subprocess.check_output(DIRBSCAN, shell=True)
     print bcolors.OKGREEN + "INFO: RESULT BELOW - Finished with dirb scan for " + ip_address + bcolors.ENDC
@@ -107,7 +108,7 @@ def dirb(ip_address, port, url_start, wordlist="/usr/share/wordlist/dirb/big.txt
 
 def nikto(ip_address, port, url_start):
     print bcolors.HEADER + "INFO: Starting nikto scan for " + ip_address + bcolors.ENDC
-    NIKTOSCAN = "nikto -h %s://%s -o ../reports/%s/nikto-%s-%s.txt" % (url_start, ip_address, ip_address, url_start, ip_address)
+    NIKTOSCAN = "nikto -h %s://%s -o ../reports/%s/nikto_%s-%s.txt" % (url_start, ip_address, ip_address, url_start, ip_address)
     print bcolors.HEADER + NIKTOSCAN + bcolors.ENDC
     results_nikto = subprocess.check_output(NIKTOSCAN, shell=True)
     print bcolors.OKGREEN + "INFO: RESULT BELOW - Finished with NIKTO-scan for " + ip_address + bcolors.ENDC
@@ -129,6 +130,10 @@ def httpEnum(ip_address, port):
     print bcolors.HEADER + CURLSCAN + bcolors.END
     curl_results = subprocess.check_output(CURLSCAN, shell=True)
     write_to_file(ip_address, "curl", curl_results)
+    ROBOTSTXTSCAN = "curl -L http://%s/robots.txt" % (ip_address)
+    print bcolors.HEADER + ROBOTSTXTSCAN + bcolors.END
+    robotstxt_results = subprocess.check_output(ROBOTSTXTSCAN, shell=True)
+    write_to_file(ip_address, "robots.txt", robotstxt_results)
     HTTPSCAN = "nmap -sV -Pn -p %s --script=http-vhosts,http-userdir-enum,http-apache-negotiation,http-backup-finder,http-config-backup,http-default-accounts,http-methods,http-method-tamper,http-passwd,http-robots.txt,http-devframework,http-enum,http-frontpage-login,http-git,http-iis-webdav-vuln,http-php-version,http-robots.txt,http-shellshock,http-vuln-cve2015-1635 -oN ../reports/%s/%s_http.nmap %s" % (port, ip_address, ip_address, ip_address)
     print bcolors.HEADER + HTTPSCAN + bcolors.ENDC
 
@@ -214,7 +219,7 @@ def udpScan(ip_address):
     udpscan_results = subprocess.check_output(UDPSCAN, shell=True)
     print bcolors.OKGREEN + "INFO: RESULT BELOW - Finished with UDP-Nmap scan for " + ip_address + bcolors.ENDC
     print udpscan_results
-    UNICORNSCAN = "unicornscan -mU -I %s > ../reports/%s/unicorn_udp_%s.txt" % (ip_address, ip_address, ip_address)
+    UNICORNSCAN = "unicornscan -v -mU -I -p1-65535 %s > ../reports/%s/unicorn_udp_%s.txt" % (ip_address, ip_address, ip_address)
     unicornscan_results = subprocess.check_output(UNICORNSCAN, shell=True)
     print bcolors.OKGREEN + "INFO: CHECK FILE - Finished with UNICORNSCAN for " + ip_address + bcolors.ENDC
 
@@ -239,21 +244,47 @@ def pop3Scan(ip_address, port):
     return
 
 
+def run_command(command):
+    process = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE)
+    while True:
+        output = process.stdout.readline()
+        if output == '' and process.poll() is not None:
+            break
+        if output:
+            print output.strip()
+    rc = process.poll()
+    return rc
+
+
 def nmapScan(ip_address):
     ip_address = ip_address.strip()
     print bcolors.OKGREEN + "INFO: Running general TCP/UDP nmap scans for " + ip_address + bcolors.ENDC
 
 
-    TCPSCAN = "nmap -sV -O %s -oN '../reports/%s/%s.nmap'"  % (ip_address, ip_address, ip_address)
+    TCPSCAN = "nmap -v -sSV -Pn -O --stats-every 60s --max-retries 3 --script banner -oN '../reports/%s/%s.nmap' %s"  % (ip_address, ip_address, ip_address)
     print bcolors.HEADER + TCPSCAN + bcolors.ENDC
-    results = subprocess.check_output(TCPSCAN, shell=True)
-    print bcolors.OKGREEN + "INFO: RESULT BELOW - Finished with BASIC Nmap-scan for " + ip_address + bcolors.ENDC
-    print results
+    rc = run_command(TCPSCAN)
+    # results = subprocess.check_output(TCPSCAN, shell=True)
+    if rc == 0:
+        print bcolors.OKGREEN + "INFO: RESULT BELOW - Finished with BASIC Nmap-scan for " + ip_address + bcolors.ENDC
+    else:
+        print bcolors.FAIL + "INFO: RESULT BELOW - BASIC Nmap-scan for " + ip_address + " failed!" + bcolors.ENDC
+    
+    print rc
 
-    p = multiprocessing.Process(target=udpScan, args=(scanip,))
-    p.start()
+    # p = multiprocessing.Process(target=udpScan, args=(scanip,))
+    # p.start()
+
+    # Read file with NMAP result
+
+    FILE = "../reports/%s/%s.nmap"  % (ip_address, ip_address)
+    f = open(FILE, 'r')
+    results = f.read()
+    f.close()
+    print(results)
 
     write_to_file(ip_address, "portscan", results)
+
     lines = results.split("\n")
     serv_dict = {}
     for line in lines:
@@ -314,8 +345,7 @@ def nmapScan(ip_address):
                 port = port.split("/")[0]
                 multProc(snmpEnum, ip_address, port)
 
-    return
-
+    return  
 
 print bcolors.HEADER
 print "------------------------------------------------------------"
@@ -358,8 +388,6 @@ if __name__=='__main__':
             print bcolors.OKGREEN + "INFO: Added pentesting templates: " + "../reports/" + scanip + bcolors.ENDC
             subprocess.check_output("sed -i -e 's/INSERTIPADDRESS/" + scanip + "/g' ../reports/" + scanip + "/mapping-windows.md", shell=True)
             subprocess.check_output("sed -i -e 's/INSERTIPADDRESS/" + scanip + "/g' ../reports/" + scanip + "/mapping-linux.md", shell=True)
-
-
 
         p = multiprocessing.Process(target=nmapScan, args=(scanip,))
         p.start()
